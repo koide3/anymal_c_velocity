@@ -1,13 +1,20 @@
 """ANYbotics ANYmal C velocity environment configurations."""
 
+import datetime
+import logging
+
+import torch
+
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs.mdp.actions import JointPositionActionCfg
+from mjlab.envs.mdp.terminations import nan_detection
 from mjlab.managers import SceneEntityCfg
 from mjlab.managers.termination_manager import TerminationTermCfg
 from mjlab.sensor import ContactMatch, ContactSensorCfg, RayCastSensorCfg
 from mjlab.tasks.velocity import mdp
 from mjlab.tasks.velocity.mdp import UniformVelocityCommandCfg
 from mjlab.tasks.velocity.velocity_env_cfg import make_velocity_env_cfg
+from mjlab.utils.nan_guard import NanGuardCfg
 
 from anymal_c_velocity.anymal_c.anymal_c_constants import (
   ANYMAL_C_ACTION_SCALE,
@@ -17,6 +24,98 @@ from anymal_c_velocity.anymal_c.anymal_s_constants import (
   ANYMAL_S_ACTION_SCALE,
   get_anymal_s_robot_cfg,
 )
+
+_NAN_LOG_PATH = "/tmp/anymal_log.txt"
+_nan_logger = logging.getLogger("anymal_nan_guard")
+
+
+def _nan_detection_with_logging(env) -> torch.Tensor:
+  """Detect NaN/Inf in physics state and log diagnostics on first occurrence."""
+  nan_mask = nan_detection(env)
+  if not nan_mask.any():
+    return nan_mask
+
+  nan_env_ids = torch.where(nan_mask)[0].tolist()
+  timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+  lines: list[str] = []
+  lines.append(f"\n{'=' * 80}")
+  lines.append(f"[{timestamp}] NaN detected in {len(nan_env_ids)} env(s): {nan_env_ids[:20]}")
+  lines.append(f"  Episode step: {env.episode_length_buf[nan_env_ids[0]].item()}")
+  lines.append(f"  Common step:  {env.common_step_counter}")
+
+  # Physics state summary for first NaN env.
+  eid = nan_env_ids[0]
+  data = env.sim.data
+  for name, tensor in [
+    ("qpos", data.qpos),
+    ("qvel", data.qvel),
+    ("qacc", data.qacc),
+    ("sensordata", data.sensordata),
+  ]:
+    t = tensor[eid]
+    has_nan = torch.isnan(t).any().item()
+    has_inf = torch.isinf(t).any().item()
+    nan_count = torch.isnan(t).sum().item()
+    inf_count = torch.isinf(t).sum().item()
+    lines.append(
+      f"  {name:>14s}: shape={tuple(t.shape)}"
+      f"  min={t[torch.isfinite(t)].min().item() if torch.isfinite(t).any() else float('nan'):+.4e}"
+      f"  max={t[torch.isfinite(t)].max().item() if torch.isfinite(t).any() else float('nan'):+.4e}"
+      f"  NaN={nan_count}  Inf={inf_count}"
+    )
+
+  # Reward term values (most recent computation).
+  if hasattr(env, "reward_manager"):
+    lines.append("  Reward terms:")
+    for i, term_name in enumerate(env.reward_manager._term_names):
+      cfg = env.reward_manager._term_cfgs[i]
+      lines.append(f"    {term_name:>30s}: weight={cfg.weight:.4f}")
+
+  # Observation stats for actor group.
+  if hasattr(env, "obs_buf") and "actor" in env.obs_buf:
+    obs = env.obs_buf["actor"]
+    if isinstance(obs, torch.Tensor):
+      o = obs[eid]
+      lines.append(
+        f"  Actor obs: shape={tuple(o.shape)}"
+        f"  NaN={torch.isnan(o).sum().item()}"
+        f"  Inf={torch.isinf(o).sum().item()}"
+        f"  min={o[torch.isfinite(o)].min().item() if torch.isfinite(o).any() else float('nan'):+.4e}"
+        f"  max={o[torch.isfinite(o)].max().item() if torch.isfinite(o).any() else float('nan'):+.4e}"
+      )
+
+  # Robot root state.
+  try:
+    robot = env.scene["robot"]
+    root_pos = robot.data.root_link_pos_w[eid]
+    root_quat = robot.data.root_link_quat_w[eid]
+    root_vel = robot.data.root_com_lin_vel_b[eid]
+    lines.append(
+      f"  Root pos:  {root_pos.tolist()}"
+    )
+    lines.append(
+      f"  Root quat: {root_quat.tolist()}"
+    )
+    lines.append(
+      f"  Root vel:  {root_vel.tolist()}"
+    )
+  except Exception:
+    lines.append(f"  Root state: <unavailable>")
+
+  lines.append(f"{'=' * 80}\n")
+
+  msg = "\n".join(lines)
+  _nan_logger.warning(msg)
+
+  # Append to log file.
+  try:
+    with open(_NAN_LOG_PATH, "a") as f:
+      f.write(msg + "\n")
+  except OSError:
+    _nan_logger.warning(f"Failed to write NaN log to {_NAN_LOG_PATH}")
+
+  return nan_mask
 
 
 def anymal_c_rough_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
@@ -247,8 +346,8 @@ def anymal_s_rough_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   del cfg.observations["critic"].terms["height_scan"]
 
   # Sanitize NaN/Inf in observations (shell physics can diverge).
-  cfg.observations["actor"].nan_mode = "sanitize"
-  cfg.observations["critic"].nan_mode = "sanitize"
+  cfg.observations["actor"].nan_policy = "sanitize"
+  cfg.observations["critic"].nan_policy = "sanitize"
 
   cfg.observations["critic"].terms["foot_height"].params[
     "asset_cfg"
@@ -291,6 +390,21 @@ def anymal_s_rough_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   cfg.terminations["illegal_contact"] = TerminationTermCfg(
     func=mdp.illegal_contact,
     params={"sensor_name": nonfoot_ground_cfg.name},
+  )
+
+  # Terminate (and reset) environments with NaN/Inf physics state so that
+  # training can continue instead of crashing.
+  cfg.terminations["nan_detection"] = TerminationTermCfg(
+    func=_nan_detection_with_logging,
+    time_out=False,
+  )
+
+  # Enable NaN guard to capture simulation states for offline debugging.
+  cfg.sim.nan_guard = NanGuardCfg(
+    enabled=True,
+    buffer_size=100,
+    output_dir="/tmp/mjlab/nan_dumps",
+    max_envs_to_dump=5,
   )
 
   cmd = cfg.commands["twist"]
