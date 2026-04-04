@@ -181,12 +181,12 @@
 
       <!-- Icosidodecahedron shell: child of base with relative joints for independent motion -->
       <body name="shell" pos="0 0 0">
-        <joint name="shell_tx" type="slide" axis="1 0 0"/>
-        <joint name="shell_ty" type="slide" axis="0 1 0"/>
-        <joint name="shell_tz" type="slide" axis="0 0 1"/>
-        <joint name="shell_rx" type="hinge" axis="1 0 0"/>
-        <joint name="shell_ry" type="hinge" axis="0 1 0"/>
-        <joint name="shell_rz" type="hinge" axis="0 0 1"/>
+        <joint name="shell_tx" type="slide" axis="1 0 0" damping="10"/>
+        <joint name="shell_ty" type="slide" axis="0 1 0" damping="10"/>
+        <joint name="shell_tz" type="slide" axis="0 0 1" damping="10"/>
+        <joint name="shell_rx" type="hinge" axis="1 0 0" damping="10"/>
+        <joint name="shell_ry" type="hinge" axis="0 1 0" damping="10"/>
+        <joint name="shell_rz" type="hinge" axis="0 0 1" damping="10"/>
         <inertial mass="5.0" pos="0 0 0" diaginertia="4.0 4.0 4.0"/>
         <!-- 32 face plate collision geoms (20 triangles + 12 pentagons) -->
         <geom name="shell_face_0" type="mesh" mesh="shell_tri_0" contype="1" conaffinity="1" group="3" rgba="0.3 0.6 0.9 0.3"/>
