@@ -2,6 +2,7 @@
 
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs.mdp.actions import JointPositionActionCfg
+from mjlab.managers import SceneEntityCfg
 from mjlab.managers.termination_manager import TerminationTermCfg
 from mjlab.sensor import ContactMatch, ContactSensorCfg, RayCastSensorCfg
 from mjlab.tasks.velocity import mdp
@@ -169,10 +170,15 @@ def anymal_s_rough_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
 
   cfg.sim.mujoco.ccd_iterations = 500
   cfg.sim.contact_sensor_maxmatch = 500
-  # Increase nconmax to handle additional shell-terrain contacts (60 struts).
-  cfg.sim.nconmax = 2000
+  # Increase nconmax to handle additional shell-terrain contacts (32 face plates).
+  cfg.sim.nconmax = 600
 
   cfg.scene.entities = {"robot": get_anymal_s_robot_cfg()}
+
+  # Only observe/reward the 12 actuated robot joints (exclude 6 shell joints).
+  _rj = (".*HAA", ".*HFE", ".*KFE")
+  def _robot_joints() -> SceneEntityCfg:
+    return SceneEntityCfg("robot", joint_names=_rj)
 
   # Set raycast sensor frame to ANYmal S base.
   for sensor in cfg.scene.sensors or ():
@@ -223,6 +229,11 @@ def anymal_s_rough_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   cfg.viewer.distance = 2.5
   cfg.viewer.elevation = -10.0
 
+  # Filter observations to only include the 12 actuated joints.
+  for group in ("actor", "critic"):
+    cfg.observations[group].terms["joint_pos"].params["asset_cfg"] = _robot_joints()
+    cfg.observations[group].terms["joint_vel"].params["asset_cfg"] = _robot_joints()
+
   cfg.observations["critic"].terms["foot_height"].params[
     "asset_cfg"
   ].site_names = site_names
@@ -230,24 +241,26 @@ def anymal_s_rough_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   cfg.events["foot_friction"].params["asset_cfg"].geom_names = geom_names
   cfg.events["base_com"].params["asset_cfg"].body_names = ("base",)
 
+  # Filter pose reward to only evaluate actuated joints (no shell joints).
+  cfg.rewards["pose"].params["asset_cfg"] = _robot_joints()
   cfg.rewards["pose"].params["std_standing"] = {
     ".*HAA": 0.05,
     ".*HFE": 0.05,
     ".*KFE": 0.1,
-    "shell_.*": 1e6,
   }
   cfg.rewards["pose"].params["std_walking"] = {
     ".*HAA": 0.3,
     ".*HFE": 0.3,
     ".*KFE": 0.6,
-    "shell_.*": 1e6,
   }
   cfg.rewards["pose"].params["std_running"] = {
     ".*HAA": 0.3,
     ".*HFE": 0.3,
     ".*KFE": 0.6,
-    "shell_.*": 1e6,
   }
+
+  # Filter dof_pos_limits to actuated joints only.
+  cfg.rewards["dof_pos_limits"].params["asset_cfg"] = _robot_joints()
 
   cfg.rewards["upright"].params["asset_cfg"].body_names = ("base",)
   cfg.rewards["body_ang_vel"].params["asset_cfg"].body_names = ("base",)
