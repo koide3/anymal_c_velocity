@@ -246,6 +246,10 @@ def anymal_s_rough_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   del cfg.observations["actor"].terms["height_scan"]
   del cfg.observations["critic"].terms["height_scan"]
 
+  # Sanitize NaN/Inf in observations (shell physics can diverge).
+  cfg.observations["actor"].nan_mode = "sanitize"
+  cfg.observations["critic"].nan_mode = "sanitize"
+
   cfg.observations["critic"].terms["foot_height"].params[
     "asset_cfg"
   ].site_names = site_names
