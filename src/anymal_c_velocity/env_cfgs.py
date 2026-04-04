@@ -12,6 +12,10 @@ from anymal_c_velocity.anymal_c.anymal_c_constants import (
   ANYMAL_C_ACTION_SCALE,
   get_anymal_c_robot_cfg,
 )
+from anymal_c_velocity.anymal_c.anymal_s_constants import (
+  ANYMAL_S_ACTION_SCALE,
+  get_anymal_s_robot_cfg,
+)
 
 
 def anymal_c_rough_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
@@ -155,5 +159,127 @@ def anymal_c_flat_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
 
   # Disable terrain curriculum.
   cfg.curriculum.pop("terrain_levels", None)
+
+  return cfg
+
+
+def anymal_s_rough_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
+  """Create ANYmal S (icosidodecahedron shell) rough terrain velocity configuration."""
+  cfg = make_velocity_env_cfg()
+
+  cfg.sim.mujoco.ccd_iterations = 500
+  cfg.sim.contact_sensor_maxmatch = 500
+  # Increase nconmax to handle additional shell-terrain contacts (60 struts).
+  cfg.sim.nconmax = 2000
+
+  cfg.scene.entities = {"robot": get_anymal_s_robot_cfg()}
+
+  # Set raycast sensor frame to ANYmal S base.
+  for sensor in cfg.scene.sensors or ():
+    if sensor.name == "terrain_scan":
+      assert isinstance(sensor, RayCastSensorCfg)
+      sensor.frame.name = "base"
+
+  site_names = ("LF", "RF", "LH", "RH")
+  geom_names = ("LF_foot", "RF_foot", "LH_foot", "RH_foot")
+
+  feet_ground_cfg = ContactSensorCfg(
+    name="feet_ground_contact",
+    primary=ContactMatch(mode="geom", pattern=geom_names, entity="robot"),
+    secondary=ContactMatch(mode="body", pattern="terrain"),
+    fields=("found", "force"),
+    reduce="netforce",
+    num_slots=1,
+    track_air_time=True,
+  )
+  nonfoot_ground_cfg = ContactSensorCfg(
+    name="nonfoot_ground_touch",
+    primary=ContactMatch(
+      mode="geom",
+      entity="robot",
+      # Match all collision geoms (including shell_collision).
+      pattern=r".*_collision\d*$",
+      # Except for the foot geoms and shell struts (shell may touch ground).
+      exclude=tuple(geom_names) + tuple(f"shell_face_{i}" for i in range(32)),
+    ),
+    secondary=ContactMatch(mode="body", pattern="terrain"),
+    fields=("found",),
+    reduce="none",
+    num_slots=1,
+  )
+  cfg.scene.sensors = (cfg.scene.sensors or ()) + (
+    feet_ground_cfg,
+    nonfoot_ground_cfg,
+  )
+
+  if cfg.scene.terrain is not None and cfg.scene.terrain.terrain_generator is not None:
+    cfg.scene.terrain.terrain_generator.curriculum = True
+
+  joint_pos_action = cfg.actions["joint_pos"]
+  assert isinstance(joint_pos_action, JointPositionActionCfg)
+  joint_pos_action.scale = ANYMAL_S_ACTION_SCALE
+
+  cfg.viewer.body_name = "base"
+  cfg.viewer.distance = 2.5
+  cfg.viewer.elevation = -10.0
+
+  cfg.observations["critic"].terms["foot_height"].params[
+    "asset_cfg"
+  ].site_names = site_names
+
+  cfg.events["foot_friction"].params["asset_cfg"].geom_names = geom_names
+  cfg.events["base_com"].params["asset_cfg"].body_names = ("base",)
+
+  cfg.rewards["pose"].params["std_standing"] = {
+    ".*HAA": 0.05,
+    ".*HFE": 0.05,
+    ".*KFE": 0.1,
+    "shell_.*": 1e6,
+  }
+  cfg.rewards["pose"].params["std_walking"] = {
+    ".*HAA": 0.3,
+    ".*HFE": 0.3,
+    ".*KFE": 0.6,
+    "shell_.*": 1e6,
+  }
+  cfg.rewards["pose"].params["std_running"] = {
+    ".*HAA": 0.3,
+    ".*HFE": 0.3,
+    ".*KFE": 0.6,
+    "shell_.*": 1e6,
+  }
+
+  cfg.rewards["upright"].params["asset_cfg"].body_names = ("base",)
+  cfg.rewards["body_ang_vel"].params["asset_cfg"].body_names = ("base",)
+
+  for reward_name in ["foot_clearance", "foot_swing_height", "foot_slip"]:
+    cfg.rewards[reward_name].params["asset_cfg"].site_names = site_names
+
+  cfg.rewards["body_ang_vel"].weight = 0.0
+  cfg.rewards["angular_momentum"].weight = 0.0
+  cfg.rewards["air_time"].weight = 0.0
+
+  cfg.terminations["illegal_contact"] = TerminationTermCfg(
+    func=mdp.illegal_contact,
+    params={"sensor_name": nonfoot_ground_cfg.name},
+  )
+
+  cmd = cfg.commands["twist"]
+  assert isinstance(cmd, UniformVelocityCommandCfg)
+  cmd.viz.z_offset = 0.5
+
+  # Apply play mode overrides.
+  if play:
+    cfg.episode_length_s = int(1e9)
+
+    cfg.observations["actor"].enable_corruption = False
+    cfg.events.pop("push_robot", None)
+
+    if cfg.scene.terrain is not None:
+      if cfg.scene.terrain.terrain_generator is not None:
+        cfg.scene.terrain.terrain_generator.curriculum = False
+        cfg.scene.terrain.terrain_generator.num_cols = 5
+        cfg.scene.terrain.terrain_generator.num_rows = 5
+        cfg.scene.terrain.terrain_generator.border_width = 10.0
 
   return cfg
