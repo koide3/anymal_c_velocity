@@ -168,8 +168,8 @@ def anymal_s_rough_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   """Create ANYmal S (icosidodecahedron shell) rough terrain velocity configuration."""
   cfg = make_velocity_env_cfg()
 
-  cfg.sim.mujoco.ccd_iterations = 500
-  cfg.sim.contact_sensor_maxmatch = 500
+  cfg.sim.mujoco.ccd_iterations = 50
+  cfg.sim.contact_sensor_maxmatch = 64
   # Increase nconmax to handle additional shell-terrain contacts (32 face plates).
   cfg.sim.nconmax = 600
 
@@ -180,11 +180,10 @@ def anymal_s_rough_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   def _robot_joints() -> SceneEntityCfg:
     return SceneEntityCfg("robot", joint_names=_rj)
 
-  # Set raycast sensor frame to ANYmal S base.
-  for sensor in cfg.scene.sensors or ():
-    if sensor.name == "terrain_scan":
-      assert isinstance(sensor, RayCastSensorCfg)
-      sensor.frame.name = "base"
+  # Remove raycast sensor (no height scan needed).
+  cfg.scene.sensors = tuple(
+    s for s in (cfg.scene.sensors or ()) if s.name != "terrain_scan"
+  )
 
   site_names = ("LF", "RF", "LH", "RH")
   geom_names = ("LF_foot", "RF_foot", "LH_foot", "RH_foot")
@@ -220,6 +219,15 @@ def anymal_s_rough_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
 
   if cfg.scene.terrain is not None and cfg.scene.terrain.terrain_generator is not None:
     cfg.scene.terrain.terrain_generator.curriculum = True
+    # Coarsen heightfield to avoid hfield collision overflow with large shell plates.
+    for sub_terrain in cfg.scene.terrain.terrain_generator.sub_terrains.values():
+      if hasattr(sub_terrain, "horizontal_scale"):
+        sub_terrain.horizontal_scale = 0.5
+        # border_width must be >= horizontal_scale.
+        if hasattr(sub_terrain, "border_width") and sub_terrain.border_width > 0:
+          sub_terrain.border_width = max(sub_terrain.border_width, 0.5)
+      if hasattr(sub_terrain, "resolution"):
+        sub_terrain.resolution = 0.5
 
   joint_pos_action = cfg.actions["joint_pos"]
   assert isinstance(joint_pos_action, JointPositionActionCfg)
@@ -233,6 +241,10 @@ def anymal_s_rough_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   for group in ("actor", "critic"):
     cfg.observations[group].terms["joint_pos"].params["asset_cfg"] = _robot_joints()
     cfg.observations[group].terms["joint_vel"].params["asset_cfg"] = _robot_joints()
+
+  # Remove height_scan observation (not needed with shell).
+  del cfg.observations["actor"].terms["height_scan"]
+  del cfg.observations["critic"].terms["height_scan"]
 
   cfg.observations["critic"].terms["foot_height"].params[
     "asset_cfg"
