@@ -22,5 +22,5 @@ def anymal_c_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
       entropy_coef=0.01,
     ),
     experiment_name="anymal_c_velocity",
-    max_iterations=10_000,
+    max_iterations=1_000_000,
   )
