@@ -22,7 +22,10 @@ from anymal_c_velocity.anymal_c.anymal_c_constants import (
 )
 from anymal_c_velocity.anymal_c.anymal_s_constants import (
   ANYMAL_S_ACTION_SCALE,
+  NUM_ICOSIDO_FACES,
+  NUM_SPHERE_FACES,
   get_anymal_s_robot_cfg,
+  get_anymal_s_sphere_robot_cfg,
 )
 
 _NAN_LOG_PATH = "/tmp/anymal_log.txt"
@@ -237,6 +240,14 @@ def anymal_c_rough_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   return cfg
 
 
+def anymal_s_rough_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
+  """Create ANYmal S (icosidodecahedron shell) rough terrain velocity configuration."""
+  return _anymal_s_env_cfg(play, get_anymal_s_robot_cfg, NUM_ICOSIDO_FACES)
+
+
+def anymal_s_sphere_rough_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
+  """Create ANYmal S (sphere shell) rough terrain velocity configuration."""
+  return _anymal_s_env_cfg(play, get_anymal_s_sphere_robot_cfg, NUM_SPHERE_FACES)
 def anymal_c_flat_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   """Create ANYmal C flat terrain velocity configuration."""
   cfg = anymal_c_rough_env_cfg(play=play)
@@ -263,7 +274,11 @@ def anymal_c_flat_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   return cfg
 
 
-def anymal_s_rough_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
+def _anymal_s_env_cfg(
+  play: bool,
+  robot_cfg_fn: object,
+  num_shell_faces: int,
+) -> ManagerBasedRlEnvCfg:
   """Create ANYmal S (icosidodecahedron shell) rough terrain velocity configuration."""
   cfg = make_velocity_env_cfg()
 
@@ -272,7 +287,7 @@ def anymal_s_rough_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   # Increase nconmax to handle additional shell-terrain contacts (32 face plates).
   cfg.sim.nconmax = 600
 
-  cfg.scene.entities = {"robot": get_anymal_s_robot_cfg()}
+  cfg.scene.entities = {"robot": robot_cfg_fn()}
 
   # Only observe/reward the 12 actuated robot joints (exclude 6 shell joints).
   _rj = (".*HAA", ".*HFE", ".*KFE")
@@ -304,7 +319,7 @@ def anymal_s_rough_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
       # Match all collision geoms (including shell_collision).
       pattern=r".*_collision\d*$",
       # Except for the foot geoms and shell struts (shell may touch ground).
-      exclude=tuple(geom_names) + tuple(f"shell_face_{i}" for i in range(32)),
+      exclude=tuple(geom_names) + tuple(f"shell_face_{i}" for i in range(num_shell_faces)),
     ),
     secondary=ContactMatch(mode="body", pattern="terrain"),
     fields=("found",),

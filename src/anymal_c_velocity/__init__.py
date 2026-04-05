@@ -5,6 +5,7 @@ from .env_cfgs import (
   anymal_c_flat_env_cfg,
   anymal_c_rough_env_cfg,
   anymal_s_rough_env_cfg,
+  anymal_s_sphere_rough_env_cfg,
 )
 from .rl_cfg import anymal_c_ppo_runner_cfg
 
@@ -28,6 +29,14 @@ register_mjlab_task(
   task_id="Mjlab-Velocity-Rough-Anymal-S",
   env_cfg=anymal_s_rough_env_cfg(),
   play_env_cfg=anymal_s_rough_env_cfg(play=True),
+  rl_cfg=anymal_c_ppo_runner_cfg(),
+  runner_cls=VelocityOnPolicyRunner,
+)
+
+register_mjlab_task(
+  task_id="Mjlab-Velocity-Rough-Anymal-S-Sphere",
+  env_cfg=anymal_s_sphere_rough_env_cfg(),
+  play_env_cfg=anymal_s_sphere_rough_env_cfg(play=True),
   rl_cfg=anymal_c_ppo_runner_cfg(),
   runner_cls=VelocityOnPolicyRunner,
 )

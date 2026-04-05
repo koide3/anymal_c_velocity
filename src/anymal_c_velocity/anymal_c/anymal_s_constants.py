@@ -1,4 +1,4 @@
-"""ANYmal S (ANYmal C in icosidodecahedron shell) constants."""
+"""ANYmal S (ANYmal C in shell) constants."""
 
 from pathlib import Path
 
@@ -17,6 +17,13 @@ _HERE = Path(__file__).parent
 ANYMAL_S_XML: Path = _HERE / "xmls" / "anymal_s.xml"
 assert ANYMAL_S_XML.exists()
 
+ANYMAL_S_SPHERE_XML: Path = _HERE / "xmls" / "anymal_s_sphere.xml"
+assert ANYMAL_S_SPHERE_XML.exists()
+
+# Number of shell collision face geoms per variant.
+NUM_ICOSIDO_FACES = 32
+NUM_SPHERE_FACES = 80
+
 
 def get_assets(meshdir: str) -> dict[str, bytes]:
   assets: dict[str, bytes] = {}
@@ -26,6 +33,12 @@ def get_assets(meshdir: str) -> dict[str, bytes]:
 
 def get_spec() -> mujoco.MjSpec:
   spec = mujoco.MjSpec.from_file(str(ANYMAL_S_XML))
+  spec.assets = get_assets(spec.meshdir)
+  return spec
+
+
+def get_spec_sphere() -> mujoco.MjSpec:
+  spec = mujoco.MjSpec.from_file(str(ANYMAL_S_SPHERE_XML))
   spec.assets = get_assets(spec.meshdir)
   return spec
 
@@ -102,16 +115,21 @@ ANYMAL_S_ARTICULATION = EntityArticulationInfoCfg(
 
 
 def get_anymal_s_robot_cfg() -> EntityCfg:
-  """Get a fresh ANYmal S robot configuration instance.
-
-  ANYmal S is ANYmal C enclosed in an icosidodecahedron shell.
-  Returns a new EntityCfg instance each time to avoid mutation issues when
-  the config is shared across multiple places.
-  """
+  """Get ANYmal S robot config with icosidodecahedron shell."""
   return EntityCfg(
     init_state=INIT_STATE,
     collisions=(FULL_COLLISION,),
     spec_fn=get_spec,
+    articulation=ANYMAL_S_ARTICULATION,
+  )
+
+
+def get_anymal_s_sphere_robot_cfg() -> EntityCfg:
+  """Get ANYmal S robot config with sphere shell."""
+  return EntityCfg(
+    init_state=INIT_STATE,
+    collisions=(FULL_COLLISION,),
+    spec_fn=get_spec_sphere,
     articulation=ANYMAL_S_ARTICULATION,
   )
 
