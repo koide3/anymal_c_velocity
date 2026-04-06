@@ -398,6 +398,17 @@ def _anymal_s_env_cfg(
   for reward_name in ["foot_clearance", "foot_swing_height", "foot_slip"]:
     cfg.rewards[reward_name].params["asset_cfg"].site_names = site_names
 
+  cfg.rewards["track_linear_velocity"].weight = 10.0
+  cfg.rewards["track_angular_velocity"].weight = 1.0
+  cfg.rewards["upright"].weight = 0.1
+  cfg.rewards["pose"].weight = 0.1
+  cfg.rewards["dof_pos_limits"].weight = -0.1
+  cfg.rewards["action_rate_l2"].weight = -0.01
+  cfg.rewards["foot_clearance"].weight = -0.1
+  cfg.rewards["foot_swing_height"].weight = -0.1
+  cfg.rewards["foot_slip"].weight = -0.1
+
+
   cfg.rewards["body_ang_vel"].weight = 0.0
   cfg.rewards["angular_momentum"].weight = 0.0
   cfg.rewards["air_time"].weight = 0.0

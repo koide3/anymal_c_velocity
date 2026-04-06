@@ -13,7 +13,7 @@ def anymal_c_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
     actor=RslRlModelCfg(
       hidden_dims=(512, 256, 128),
       stochastic=True,
-      noise_std_type="log",
+      noise_std_type="scalar",
     ),
     critic=RslRlModelCfg(
       hidden_dims=(512, 256, 128),
